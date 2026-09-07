@@ -1,0 +1,55 @@
+# PoC stack: LiteLLM (+ Presidio guardrail) -> LOCAL Ollama. No Anthropic upstream, no key.
+# Image tags are env-overridable (see .env / .env.example) so a bad VERIFY pin can be swapped
+# without editing this file:  LITELLM_IMAGE / PRESIDIO_ANALYZER_IMAGE / PRESIDIO_ANONYMIZER_IMAGE
+services:
+  litellm:
+    # VERIFY registry: try docker.litellm.ai/berriai/litellm:v1.98.0 first; fallback ghcr.io/berriai/litellm:v1.98.0
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:v1.98.0}
+    ports: ["4000:4000"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    volumes:
+      # LITELLM_CONFIG wins if set (capture profile); else pick profile1/profile2 by LITELLM_PROFILE
+      - ${LITELLM_CONFIG:-./configs/config.profile${LITELLM_PROFILE:-2}.yaml}:/app/config.yaml:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]   # harmless on macOS, needed on Linux for Ollama
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b}
+      PRESIDIO_ANALYZER_API_BASE: ${PRESIDIO_ANALYZER_API_BASE:-http://presidio-analyzer:3000}
+      PRESIDIO_ANONYMIZER_API_BASE: ${PRESIDIO_ANONYMIZER_API_BASE:-http://presidio-anonymizer:3000}
+    depends_on:
+      presidio-analyzer:
+        condition: service_healthy
+      presidio-anonymizer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 5s
+      retries: 20
+
+  presidio-analyzer:
+    # VERIFY tag (2.2.362 vs 2.2.364); internal port 3000. mcr.microsoft.com images are legacy/unmaintained.
+    image: ${PRESIDIO_ANALYZER_IMAGE:-ghcr.io/data-privacy-stack/presidio-analyzer:2.2.362}
+    ports: ["5002:3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health || python -c \"import urllib.request;urllib.request.urlopen('http://localhost:3000/health')\""]
+      interval: 5s
+      retries: 30
+
+  presidio-anonymizer:
+    image: ${PRESIDIO_ANONYMIZER_IMAGE:-ghcr.io/data-privacy-stack/presidio-anonymizer:2.2.362}
+    ports: ["5001:3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health || python -c \"import urllib.request;urllib.request.urlopen('http://localhost:3000/health')\""]
+      interval: 5s
+      retries: 30
+
+  # T4 prompt-mutation capture ONLY (started via: docker compose --profile capture up)
+  upstream-recorder:
+    profiles: ["capture"]
+    image: node:22-alpine
+    command: ["node", "/app/mock-upstream.mjs"]
+    volumes:
+      - ./scripts/mock-upstream.mjs:/app/mock-upstream.mjs:ro
+      - ./results/captured-requests:/captured
+    ports: ["8089:8089"]

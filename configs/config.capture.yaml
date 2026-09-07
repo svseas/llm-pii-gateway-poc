@@ -1,0 +1,29 @@
+# Capture profile — Profile 2's guardrail, but upstream routed to the mock recorder so we can
+# capture EXACTLY what LiteLLM sends upstream AFTER masking (T4 prompt-mutation / prefix diff).
+# Bring up with: docker compose --profile capture up   (LITELLM_CONFIG points here via up.sh)
+model_list:
+  - model_name: "*"
+    litellm_params:
+      # openai/ is the simplest provider to point at an arbitrary api_base; recorder ignores auth.
+      # The point is the MASKED message content, which is provider-independent (guardrail rewrites
+      # `messages` before serialization).
+      model: openai/mock
+      api_base: http://upstream-recorder:8089/v1
+      api_key: sk-fake-not-used
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+guardrails:
+  - guardrail_name: presidio-pii
+    litellm_params:
+      guardrail: presidio
+      mode: [pre_call]
+      default_on: true
+      output_parse_pii: true
+      presidio_analyzer_api_base: os.environ/PRESIDIO_ANALYZER_API_BASE
+      presidio_anonymizer_api_base: os.environ/PRESIDIO_ANONYMIZER_API_BASE
+      pii_entities_config:
+        PHONE_NUMBER: MASK
+        EMAIL_ADDRESS: MASK
+      presidio_score_threshold: 0.75

@@ -1,0 +1,30 @@
+# Profile 2 — predicted-usable guardrail, upstream = LOCAL Ollama. THIS IS THE DEFAULT.
+# Deltas vs Profile 1 (each a hypothesis to confirm):
+#  - mode: pre_call only (no post_call rewriting of streamed output)
+#  - keep output_parse_pii: true
+#  - entities: PHONE_NUMBER + EMAIL_ADDRESS MASK only
+#      * DROP PERSON  -> en NER misses VN names AND mangles code identifiers
+#      * DROP CREDIT_CARD BLOCK -> 16-digit test data / IDs in code hard-block requests
+#  - presidio_score_threshold: 0.75 (fewer false positives)
+model_list:
+  - model_name: "*"
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:7b    # keep in sync with .env OLLAMA_MODEL
+      api_base: os.environ/OLLAMA_API_BASE
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+guardrails:
+  - guardrail_name: presidio-pii
+    litellm_params:
+      guardrail: presidio
+      mode: [pre_call]
+      default_on: true
+      output_parse_pii: true
+      presidio_analyzer_api_base: os.environ/PRESIDIO_ANALYZER_API_BASE
+      presidio_anonymizer_api_base: os.environ/PRESIDIO_ANONYMIZER_API_BASE
+      pii_entities_config:
+        PHONE_NUMBER: MASK
+        EMAIL_ADDRESS: MASK
+      presidio_score_threshold: 0.75

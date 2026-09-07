@@ -1,0 +1,34 @@
+# Profile 1 — STRICT / AGGRESSIVE guardrail, upstream = LOCAL Ollama.
+# This is the "mask everything" config: it also masks PERSON and hard-BLOCKs CREDIT_CARD, with
+# pre_call + post_call. Purpose: show where an aggressive PII policy breaks a coding workflow
+# (PERSON masking mangles code identifiers; CREDIT_CARD=BLOCK hard-blocks on 16-digit test data/IDs;
+#  post_call rewriting of streamed output). Compare against Profile 2 (the pragmatic default).
+model_list:
+  - model_name: "*"                          # catch-all: whatever model ID the client sends
+    litellm_params:
+      # ollama_chat/ uses Ollama's chat endpoint (tool-calling). VERIFY prefix in your LiteLLM version.
+      model: ollama_chat/qwen2.5-coder:7b    # keep in sync with .env OLLAMA_MODEL
+      api_base: os.environ/OLLAMA_API_BASE
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+guardrails:
+  - guardrail_name: presidio-pii
+    litellm_params:
+      guardrail: presidio
+      mode: [pre_call, post_call]            # aggressive: rewrite request AND response
+      default_on: true
+      output_parse_pii: true
+      presidio_analyzer_api_base: os.environ/PRESIDIO_ANALYZER_API_BASE
+      presidio_anonymizer_api_base: os.environ/PRESIDIO_ANONYMIZER_API_BASE
+      pii_entities_config:
+        PHONE_NUMBER: MASK
+        EMAIL_ADDRESS: MASK
+        PERSON: MASK
+        CREDIT_CARD: BLOCK
+      # NOTE: per-entity thresholds (e.g. CREDIT_CARD 0.8, EMAIL 0.6, ALL 0.5) may NOT be expressible
+      # in the LiteLLM presidio guardrail — the best candidate is a single global threshold below.
+      # If a proposal specifies per-entity thresholds, that gap is itself a finding; measure per-entity
+      # behaviour via direct analyzer calls (see tests/presidio-fp.spec.ts, tests/vietnamese.spec.ts).
+      presidio_score_threshold: 0.5

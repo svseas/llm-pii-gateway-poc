@@ -1,0 +1,62 @@
+name: playwright
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Static validation only — runs on GitHub-hosted runners (no Docker stack, no GPU model).
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Typecheck the Playwright specs
+        run: npx tsc --noEmit
+      - name: Install Playwright (chromium, for the optional UI spec)
+        run: npx playwright install --with-deps chromium
+      - name: Validate docker-compose
+        run: |
+          cp .env.example .env
+          docker compose config >/dev/null
+      - name: Shellcheck-lite (bash -n) on all scripts
+        run: for f in scripts/*.sh hooks/*.sh; do bash -n "$f"; done
+      - name: node --check the mock recorder
+        run: node --check scripts/mock-upstream.mjs
+      - name: YAML parse configs
+        run: |
+          python3 - <<'PY'
+          import glob, yaml
+          for f in ["docker-compose.yml", *glob.glob("configs/*.yaml")]:
+              yaml.safe_load(open(f)); print("ok", f)
+          PY
+
+  # Full end-to-end (the actual audit) needs Docker + Ollama + a GPU model, which GitHub-hosted
+  # runners do not have. Enable this on a SELF-HOSTED runner that has the stack, then flip `if:`.
+  e2e:
+    if: false # set to: ${{ github.event_name == 'workflow_dispatch' }} and use a self-hosted runner
+    runs-on: [self-hosted, gpu]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci && cp .env.example .env
+      - run: ./scripts/up.sh 2
+      - run: npm run test:api
+      - run: npm run test:failmode
+      - run: ./scripts/test6_secrets_grep.sh
+      - if: always()
+        run: docker compose down
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-results
+          path: |
+            results/
+            playwright-report/

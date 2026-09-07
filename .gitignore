@@ -1,0 +1,12 @@
+.env
+node_modules/
+playwright-report/
+test-results/
+results/hook-violations.log
+results/captured-requests/
+results/*-report.json
+results/perf-prefix.md
+results/secrets-noise.txt
+results/settings.json.bak
+results/t1-scorecard.md
+results/RESULTS.md
